@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive VALORANT Agent Analyzer</title>
+    <!-- Chosen Palette: Warm Neutrals with Blue Accent -->
+    <!-- Application Structure Plan: A tab-based SPA for optimal user navigation. 
+        1. 'Meta Overview' (Default Tab): Presents high-level takeaways like role distribution and the ranked vs. pro meta split using summary charts and stat cards. This provides an immediate, digestible summary of the report's key findings.
+        2. 'Agent Explorer': An interactive gallery of all agents. Users can filter by role and click an agent to view their detailed dossier (abilities, strengths, weaknesses) in a dedicated panel. This structure turns the report's long text sections into an on-demand reference tool, preventing information overload.
+        3. 'Data Deep Dive': A section for data-focused users, featuring a sortable table of all agent stats and an interactive scatter plot. This allows for direct comparison and relationship analysis.
+        This tabbed architecture was chosen to segment the vast amount of information into logical, user-driven sections, making the dense report much more accessible and explorable than a single, long scrolling page. -->
+    <!-- Visualization & Content Choices: 
+        - Role Distribution (Table 1) -> Goal: Inform -> Viz: Donut Chart (Chart.js) -> Interaction: Hover tooltips -> Justification: Best for showing parts of a whole.
+        - Ranked vs. Pro Meta (Sec 2.2) -> Goal: Compare -> Viz: Grouped Bar Chart (Chart.js) -> Interaction: Hover tooltips -> Justification: Directly compares pick rates for key agents, highlighting the meta divergence.
+        - Agent Stats (Table 2) -> Goal: Organize/Compare -> Viz: Sortable HTML Table & Scatter Plot (Chart.js) -> Interaction: Click to sort, hover for details -> Justification: Table for precise lookups, scatter plot for visualizing relationships between Win/Pick rates.
+        - Agent Sub-Roles (Sec 1) -> Goal: Organize -> Viz: Styled HTML/CSS Flexbox Diagram -> Interaction: None -> Justification: Clear, semantic way to show hierarchy without graphics.
+        - Agent Dossiers (Part II) -> Goal: Inform -> Viz: Dynamic Text Blocks & HTML Tables -> Interaction: Click agent card to display -> Justification: Presents detailed text content in a structured, on-demand format. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* slate-900 */
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 320px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 400px;
+            }
+        }
+        .tab-button {
+            transition: all 0.3s ease;
+        }
+        .tab-button.active {
+            color: #ffffff; 
+            border-color: #3b82f6; /* blue-500 */
+            background-color: #1e293b; /* slate-800 */
+        }
+        .agent-card {
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .agent-card:hover {
+            transform: translateY(-4px);
+            background-color: #334155; /* slate-700 */
+        }
+        .agent-card.active {
+            border-color: #3b82f6; /* blue-500 */
+            box-shadow: 0 0 0 2px #3b82f6;
+        }
+        .content-section {
+            display: none;
+        }
+        .content-section.active {
+            display: block;
+        }
+        .role-filter.active {
+            background-color: #3b82f6; /* blue-500 */
+            color: white;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-300">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-extrabold text-white">VALORANT Agent Meta Analyzer</h1>
+            <p class="text-lg text-slate-400 mt-2">An Interactive Breakdown of the July 2025 Report</p>
+        </header>
+
+        <nav class="mb-8 flex justify-center border-b border-slate-700">
+            <button data-tab="overview" class="tab-button active text-slate-400 py-4 px-6 block hover:text-white focus:outline-none border-b-2 font-medium border-transparent">Meta Overview</button>
+            <button data-tab="explorer" class="tab-button text-slate-400 py-4 px-6 block hover:text-white focus:outline-none border-b-2 font-medium border-transparent">Agent Explorer</button>
+            <button data-tab="data" class="tab-button text-slate-400 py-4 px-6 block hover:text-white focus:outline-none border-b-2 font-medium border-transparent">Data Deep Dive</button>
+        </nav>
+
+        <main>
+            <div id="overview" class="content-section active">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div class="lg:col-span-2 bg-slate-800 p-6 rounded-lg shadow-lg">
+                        <h2 class="text-2xl font-bold mb-4 text-white">The Two Metas: Ranked vs. Professional Play</h2>
+                        <p class="text-slate-400 mb-6">A key finding of the report is the stark difference between agent viability in ranked matchmaking versus coordinated professional play. Ranked favors self-sufficient agents who can win duels independently, while the pro scene elevates agents with deep strategic utility and team synergy. This chart highlights the pick rate disparity for some of the most telling examples.</p>
+                        <div class="chart-container">
+                            <canvas id="metaDivergenceChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="lg:col-span-1 space-y-8">
+                        <div class="bg-slate-800 p-6 rounded-lg shadow-lg">
+                            <h2 class="text-2xl font-bold mb-4 text-white">Agent Role Distribution</h2>
+                            <p class="text-slate-400 mb-4">The 27 agents are categorized into four distinct roles, with Duelists being the most populated class.</p>
+                            <div class="chart-container h-64">
+                                <canvas id="roleDistributionChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="bg-slate-800 p-6 rounded-lg shadow-lg">
+                            <h2 class="text-2xl font-bold mb-4 text-white">Ranked Play Standouts</h2>
+                            <p class="text-slate-400 mb-4">In the chaotic world of ranked, two agents dominate the statistical leaderboards.</p>
+                            <div class="flex justify-around text-center">
+                                <div>
+                                    <p class="text-4xl font-bold text-blue-400">54.28%</p>
+                                    <p class="text-sm font-semibold text-slate-400">Reyna's Pick Rate</p>
+                                </div>
+                                <div>
+                                    <p class="text-4xl font-bold text-emerald-400">52.59%</p>
+                                    <p class="text-sm font-semibold text-slate-400">Clove's Win Rate</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="explorer" class="content-section">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div class="lg:col-span-1">
+                        <h2 class="text-2xl font-bold mb-4 text-white">Select an Agent</h2>
+                        <div class="flex flex-wrap gap-2 mb-4">
+                            <button class="role-filter active px-4 py-2 text-sm font-semibold bg-slate-700 text-slate-300 rounded-full transition" data-role="All">All</button>
+                            <button class="role-filter px-4 py-2 text-sm font-semibold bg-slate-700 text-slate-300 rounded-full transition" data-role="Duelist">Duelist</button>
+                            <button class="role-filter px-4 py-2 text-sm font-semibold bg-slate-700 text-slate-300 rounded-full transition" data-role="Initiator">Initiator</button>
+                            <button class="role-filter px-4 py-2 text-sm font-semibold bg-slate-700 text-slate-300 rounded-full transition" data-role="Controller">Controller</button>
+                            <button class="role-filter px-4 py-2 text-sm font-semibold bg-slate-700 text-slate-300 rounded-full transition" data-role="Sentinel">Sentinel</button>
+                        </div>
+                        <div id="agent-list" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-4 max-h-[80vh] overflow-y-auto pr-2">
+                        </div>
+                    </div>
+                    <div id="agent-details" class="lg:col-span-2 bg-slate-800 p-6 rounded-lg shadow-lg min-h-[50vh]">
+                        <p class="text-center text-slate-500 h-full flex items-center justify-center">Select an agent from the list to view their detailed dossier.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="data" class="content-section">
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                     <div class="bg-slate-800 p-6 rounded-lg shadow-lg">
+                        <h2 class="text-2xl font-bold mb-4 text-white">Agent Power Grid</h2>
+                        <p class="text-slate-400 mb-6">This chart plots every agent by their ranked Pick Rate vs. Win Rate. The top-right quadrant contains agents who are both popular and effective, forming the core of the ranked meta. Agents are color-coded by their role.</p>
+                        <div class="chart-container h-[50vh] max-h-[550px]">
+                            <canvas id="agentPowerGridChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="bg-slate-800 p-6 rounded-lg shadow-lg">
+                        <h2 class="text-2xl font-bold mb-4 text-white">Full Agent Statistics</h2>
+                        <p class="text-slate-400 mb-6">Explore the complete dataset from the V25 - Act 4 competitive season. Click on a column header to sort the table by that metric.</p>
+                        <div class="overflow-x-auto">
+                            <table id="agent-stats-table" class="w-full text-sm text-left text-slate-400">
+                                <thead class="text-xs text-slate-400 uppercase bg-slate-700">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3 cursor-pointer">Agent</th>
+                                        <th scope="col" class="px-6 py-3 cursor-pointer">Win Rate</th>
+                                        <th scope="col" class="px-6 py-3 cursor-pointer">Pick Rate</th>
+                                        <th scope="col" class="px-6 py-3 cursor-pointer">K/D Ratio</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const agentData = [
+            { name: 'Iso', role: 'Duelist', winRate: 49.12, pickRate: 13.08, kd: 1.03, dossier: { overview: "Iso is a Chinese fixer who operates as a highly self-sufficient Duelist, specializing in dismantling opponents through methodical, one-on-one engagements. His kit revolves around creating bulletproof protection for himself and forcing isolated duels, making him a nightmare for snipers and players holding static angles. He provides significant team value through his Contingency wall, which allows for a protected advance.", abilities: [ { name: 'Contingency (C)', cost: 200, charges: 1, desc: "Pushes an indestructible, bullet-blocking wall of energy forward." }, { name: 'Undercut (Q)', cost: 300, charges: 1, desc: "Throws a molecular bolt through solid objects that applies Vulnerable and Suppress to enemies it touches." }, { name: 'Double Tap (E)', cost: 150, charges: 1, desc: "After a channel, grants a shield that absorbs one instance of damage. Kills/assists on downed enemies spawn an orb that refreshes the shield." }, { name: 'Kill Contract (X)', cost: '7 Orbs', charges: 1, desc: "Hurls a column of energy that pulls the first enemy hit and Iso into a 1v1 interdimensional arena." } ], strengths: ["Anti-Sniper Specialist", "High Carry Potential", "Team-Oriented Entry", "Forcing Favorable Engagements"], weaknesses: ["Reliance on Mechanical Skill", "Limited Mobility", "Predictable Ultimate", "Vulnerable During Channel"], verdict: "Iso has carved out a solid niche as an A-Tier Duelist. While he lacks the explosive entry potential of Jett or Raze, his unique combination of team utility and self-sufficiency makes him a strong pick, particularly in ranked play where his dueling prowess can shine. He is a high-skill, high-reward agent." } },
+            { name: 'Jett', role: 'Duelist', winRate: 50.29, pickRate: 47.18, kd: 1.09, dossier: { overview: "Representing South Korea, Jett is the archetypal movement Duelist. Her entire kit is built around agility and evasion, allowing her to take aggressive risks, create space through sheer speed, and escape from unfavorable situations. She is the premier Operator agent, using her mobility to peek and reposition safely.", abilities: [ { name: 'Cloudburst (C)', cost: 200, charges: 2, desc: "Instantly throws a brief, vision-blocking cloud that can be curved mid-air." }, { name: 'Updraft (Q)', cost: 150, charges: 1, desc: "Instantly propels Jett high into the air." }, { name: 'Tailwind (E)', cost: 'Free', charges: 1, desc: "After activation, grants a window to dash in a chosen direction. Resets after two kills." }, { name: 'Blade Storm (X)', cost: '8 Orbs', charges: 1, desc: "Equips a set of highly accurate throwing knives that recharge on a kill." } ], strengths: ["Unmatched Mobility", "Operator Synergy", "High Skill Ceiling", "Effective Entry Fragging"], weaknesses: ["Nerfed Escape Window", "Reduced Verticality", "Low Team Utility", "Vulnerability Post-Dash"], verdict: "Despite numerous nerfs, Jett remains an S-tier Duelist and a cornerstone of the VALORANT meta. Her fundamental ability to create space with speed and safely wield the Operator is too powerful to ignore in both ranked and professional play, cementing her status as the queen of mobility." } },
+            { name: 'Neon', role: 'Duelist', winRate: 49.85, pickRate: 15.79, kd: 0.98, dossier: { overview: "The Filipino agent Neon is a speedster who surges into battle with bioelectric radiance. She redefines fast-paced entry, using her abilities to sprint at incredible speeds, slide around corners, and create vision-blocking tunnels of electricity.", abilities: [ { name: 'Fast Lane (C)', cost: 300, charges: 1, desc: "Fires two parallel walls of static electricity that block vision." }, { name: 'Relay Bolt (Q)', cost: 200, charges: 1, desc: "Throws an energy bolt that bounces once, concussing enemies at both impact points." }, { name: 'High Gear (E)', cost: 'Free', charges: 1, desc: "Instantly channels power for increased speed and enables an electric slide. Slide has two charges." }, { name: 'Overdrive (X)', cost: '8 Orbs', charges: 1, desc: "Unleashes full power, granting unlimited speed and a deadly lightning beam with high movement accuracy." } ], strengths: ["Unrivaled Rotational Speed", "Explosive Site Entries", "Powerful Ultimate", "Strong Synergy with Initiators"], weaknesses: ["High Skill Ceiling", "Vulnerability During Sprint", "Countered by Crowd Control", "Predictability"], verdict: "Neon has had a fluctuating presence in the meta. In the July 2025 meta, she is a solid A-tier Duelist, particularly potent on maps with long sightlines or those that favor fast rotations. Her unique speed makes her a common sight in professional play." } },
+            { name: 'Phoenix', role: 'Duelist', winRate: 50.55, pickRate: 15.87, kd: 1.06, dossier: { overview: "Hailing from the U.K., Phoenix is a self-sufficient Duelist whose star power shines through in his fiery, aggressive fighting style. His kit is a straightforward arsenal of fire-based abilities that allow him to block vision, blind enemies, and heal himself.", abilities: [ { name: 'Blaze (C)', cost: 150, charges: 1, desc: "Creates a wall of fire that blocks vision, damages enemies, and heals Phoenix." }, { name: 'Hot Hands (Q)', cost: 200, charges: 1, desc: "Throws a fireball that creates a lingering fire zone, damaging enemies and healing Phoenix." }, { name: 'Curveball (E)', cost: 250, charges: 2, desc: "Throws a flare orb that curves around corners and blinds any player who sees it. Resets a charge after two kills." }, { name: 'Run it Back (X)', cost: '6 Orbs', charges: 1, desc: "Marks his location, respawning there with full health if he dies or the timer expires." } ], strengths: ["Unique Self-Healing", "Powerful Flash", "Low-Cost, High-Impact Ultimate", "Beginner Friendly"], weaknesses: ["One-Dimensional Playstyle", "Friendly Fire Potential", "Telegraphed Abilities", "Outclassed at Higher Ranks"], verdict: "Phoenix currently sits in a B-tier position. He boasts a high win rate in ranked play, but in the professional meta, he is a niche pick, typically brought out on specific maps like Ascent and Haven." } },
+            { name: 'Raze', role: 'Duelist', winRate: 50.11, pickRate: 22.06, kd: 1.03, dossier: { overview: "Exploding out of Brazil, Raze is a Duelist whose entire identity revolves around 'a generous dose of boom'. Her kit is an arsenal of explosives used to flush enemies out of cover, clear tight spaces, and create space through sheer destructive force.", abilities: [ { name: 'Boom Bot (C)', cost: 300, charges: 1, desc: "Deploys a bot that travels in a straight line, bouncing off walls, and chases enemies in its frontal cone before exploding." }, { name: 'Blast Pack (Q)', cost: 200, charges: 2, desc: "Throws a satchel that sticks to surfaces and can be detonated to damage and move anything hit, including Raze herself." }, { name: 'Paint Shells (E)', cost: 'Free', charges: 1, desc: "Throws a cluster grenade that explodes and creates smaller sub-munitions. Resets after two kills." }, { name: 'Showstopper (X)', cost: '8 Orbs', charges: 1, desc: "Equips a rocket launcher that fires a rocket, dealing massive area damage on contact." } ], strengths: ["Exceptional Space Creation", "High Mobility", "Lethal Utility", "Strong on Specific Maps"], weaknesses: ["Self-Damage Potential", "One-Dimensional Kit", "High Skill Floor for Movement", "Vulnerable Ultimate"], verdict: "Raze is a consistently high-tier Duelist, often placed in A-tier or S-tier depending on the map pool. Her explosive power makes her a must-pick on certain maps like Bind and Split." } },
+            { name: 'Reyna', role: 'Duelist', winRate: 50.57, pickRate: 54.28, kd: 1.11, dossier: { overview: "Forged in the heart of Mexico, Reyna is the ultimate self-sufficient fragger. Her entire kit is designed to enable a 'feast or famine' playstyle; she offers very little to her team directly, but in the hands of a skilled aimer, she can become an unstoppable force.", abilities: [ { name: 'Leer (C)', cost: 250, charges: 2, desc: "Throws a mystical eye that Nearsights enemies who look at it." }, { name: 'Devour (Q)', cost: 200, charges: 2, desc: "Consumes a nearby Soul Orb from a killed enemy to rapidly heal. Can overheal." }, { name: 'Dismiss (E)', cost: 'Free', charges: 1, desc: "Consumes a Soul Orb to become temporarily intangible. Resets after two kills. Becomes invisible during her ultimate." }, { name: 'Empress (X)', cost: '6 Orbs', charges: 1, desc: "Enters a frenzy, increasing firing, equip, and reload speed. Kills renew the duration." } ], strengths: ["Snowball Potential", "Extreme Self-Sufficiency", "Aggressive Entry and Escapability", "Powerful Ultimate"], weaknesses: ["Entirely Selfish Kit", "Kill-Dependent", "Vulnerable Leer", "Predictable Post-Kill"], verdict: "Reyna is the undisputed queen of ranked play, holding the highest pick rate of any agent. However, her lack of team utility makes her a rare sight in pro play. She is a B-tier agent in a coordinated setting but remains an S-tier 'ranked demon'." } },
+            { name: 'Waylay', role: 'Duelist', winRate: 47.93, pickRate: 5.01, kd: 1.00, dossier: { overview: "Waylay is a radiant from Thailand who manipulates light to dart across the battlefield. She functions as a space-taking Duelist who can strike down targets and flit back to safety in the blink of an eye.", abilities: [ { name: 'Saturate (C)', cost: 300, charges: 1, desc: "Throws a cluster of light that explodes, Hindering players with a powerful movement and weapon slow." }, { name: 'Light Speed (Q)', cost: 300, charges: 1, desc: "Dashes forward twice. The first dash can be used for vertical movement." }, { name: 'Refract (E)', cost: 'Free', charges: 1, desc: "Creates a beacon of light on the floor. Can be reactivated to instantly travel back to the beacon." }, { name: 'Convergent Paths (X)', cost: '8 Orbs', charges: 1, desc: "Creates an afterimage that projects a beam of light that expands, Hindering enemies." } ], strengths: ["High-Speed Engagement and Escape", "Powerful Debuff", "Unpredictable Movement"], weaknesses: ["Beacon Dependency", "Lack of Vision Denial", "Limited Teamplay Impact", "High Cost of Utility"], verdict: "As a relatively new agent, Waylay's position in the meta is still solidifying. She is currently considered a B-tier Duelist with a steep learning curve. In pro play, she is seen as a niche pick, a potential Jett alternative." } },
+            { name: 'Yoru', role: 'Duelist', winRate: 47.70, pickRate: 11.15, kd: 0.99, dossier: { overview: "Yoru is a Japanese native who rips holes through reality to infiltrate enemy lines unseen. He is the game's premier trickster and lurker, using deception, misdirection, and teleportation to get behind his opponents and strike when they least expect it.", abilities: [ { name: 'Fakeout (C)', cost: 200, charges: 1, desc: "Deploys an echo that transforms into a mirror image of Yoru. When shot, it explodes in a blinding flash." }, { name: 'Blindside (Q)', cost: 250, charges: 2, desc: "Throws an unstable dimensional fragment that flashes after bouncing off a hard surface." }, { name: 'Gatecrash (E)', cost: 150, charges: 2, desc: "Sends a rift tether forward that Yoru can teleport to. Can also be used to fake a teleport. Resets after two kills." }, { name: 'Dimensional Drift (X)', cost: '8 Orbs', charges: 1, desc: "Equips a mask that allows Yoru to enter another dimension, becoming invisible and invulnerable." } ], strengths: ["Master of Deception", "Superior Lurking and Rotation", "Safe Information Gathering", "High Skill Ceiling"], weaknesses: ["High Skill Requirement", "Vulnerable Teleport", "Audio Cues", "Less Direct Entry Power"], verdict: "Yoru has completed a dramatic arc, rising to a firm S-tier position in the professional meta. However, his high complexity is reflected in his low ranked win rate. This is the clearest example of the meta divergence." } },
+            { name: 'Breach', role: 'Initiator', winRate: 49.33, pickRate: 11.11, kd: 0.92, dossier: { overview: "Breach, the bionic Swede, is a pure, aggressive Initiator. His entire kit is designed to fire powerful kinetic blasts through walls and terrain, disrupting, damaging, and dazing opponents from positions of complete safety.", abilities: [ { name: 'Aftershock (C)', cost: 200, charges: 1, desc: "Fires a slow-acting fusion charge through a wall that deals heavy damage in bursts." }, { name: 'Flashpoint (Q)', cost: 250, charges: 2, desc: "Fires a fast-acting charge through a wall that blinds all players looking at it." }, { name: 'Fault Line (E)', cost: 'Free', charges: 1, desc: "Equips a seismic blast that can be charged to increase distance, dazing all players in its path." }, { name: 'Rolling Thunder (X)', cost: '9 Orbs', charges: 1, desc: "Unleashes a cascading quake in a large cone that dazes and knocks up anyone caught in it." } ], strengths: ["Safe Initiation", "Unmatched Disruption", "Powerful Team Synergy", "Dominant Ultimate"], weaknesses: ["Heavy Team Dependency", "High Risk of Friendly Fire", "Lack of Information", "Slow and Telegraphed"], verdict: "Breach is a meta-defining agent in professional play, but a niche pick in ranked. He is considered S-tier in a coordinated team, especially in double-Initiator compositions on maps like Fracture and Haven." } },
+            { name: 'Fade', role: 'Initiator', winRate: 50.34, pickRate: 14.69, kd: 0.92, dossier: { overview: "Fade, a Turkish bounty hunter, unleashes the power of raw nightmares to seize enemy secrets. Her kit is a potent mix of information gathering and crowd control, allowing her to be both a primary scout and a setup agent for her team.", abilities: [ { name: 'Prowler (C)', cost: 250, charges: 2, desc: "Sends a creature forward that chases the first enemy or Terror Trail it sees, Nearsighting them on impact." }, { name: 'Seize (Q)', cost: 200, charges: 1, desc: "Throws an orb that ruptures, tethering, deafening, and decaying enemies caught in its radius." }, { name: 'Haunt (E)', cost: 'Free', charges: 1, desc: "Throws an orb that reveals enemies in its line of sight and creates Terror Trails to them. Recharges on a 40s cooldown." }, { name: 'Nightfall (X)', cost: '8 Orbs', charges: 1, desc: "Unleashes a wave of nightmare energy that trails, deafens, and decays all enemies it hits." } ], strengths: ["Comprehensive Information", "Powerful Utility Combos", "Aggressive Initiating", "Site-Wide Debuff"], weaknesses: ["Destructible Utility", "Limited Range", "Team Reliance", "Easily Countered"], verdict: "Fade is a solid B-tier Initiator who excels on specific maps like Lotus and Pearl, where the tight angles and complex geometry favor her utility over Sova's long-range arrows. She has carved out a strong niche as a more aggressive, close-quarters information broker." } },
+            { name: 'Gekko', role: 'Initiator', winRate: 49.94, pickRate: 18.24, kd: 0.88, dossier: { overview: "Gekko, the Angeleno, leads a tight-knit crew of calamitous creatures into battle. His unique mechanic is the ability to reclaim his creatures after they have been used, allowing him to deploy his utility multiple times in a single round.", abilities: [ { name: 'Mosh Pit (C)', cost: 250, charges: 1, desc: "Throws a creature that duplicates across a large area and explodes after a short delay." }, { name: 'Wingman (Q)', cost: 300, charges: 1, desc: "Sends a creature forward that concusses the first enemy it sees. Can also plant or defuse the Spike." }, { name: 'Dizzy (E)', cost: 250, charges: 1, desc: "Sends a creature soaring that unleashes plasma blasts, blinding enemies in its line of sight." }, { name: 'Thrash (X)', cost: '7 Orbs', charges: 1, desc: "Links with a creature's mind to steer it through enemy territory, exploding to detain enemies in a small radius." } ], strengths: ["Unmatched Objective Control", "Reusable Utility", "Aggressive Playmaking Support", "Beginner Friendly"], weaknesses: ["Vulnerable Creatures", "Reclaim Risk", "Imprecise Information", "Loud Audio Cues"], verdict: "Gekko has established himself as a strong A-tier Initiator. His unique ability to handle the Spike with Wingman provides tactical flexibility that no other agent can match, making him a valuable pick on nearly any map." } },
+            { name: 'KAY/O', role: 'Initiator', winRate: 46.52, pickRate: 9.33, kd: 0.88, dossier: { overview: "KAY/O is a machine of war built for a single purpose: neutralizing radiants. His kit is a blend of traditional FPS utility with a unique ability to suppress his opponents, preventing them from using their own abilities.", abilities: [ { name: 'FRAG/ment (C)', cost: 200, charges: 1, desc: "Throws an explosive fragment that sticks to the floor and explodes multiple times, dealing heavy damage at its center." }, { name: 'FLASH/drive (Q)', cost: 250, charges: 2, desc: "Throws a flash grenade that can be thrown overhand (long fuse) or underhand (short fuse)." }, { name: 'ZERO/point (E)', cost: 'Free', charges: 1, desc: "Throws a suppression blade that sticks to a surface and suppresses anyone in its radius. Recharges on a 40s cooldown." }, { name: 'NULL/cmd (X)', cost: '7 Orbs', charges: 1, desc: "Overloads with energy, emitting pulses that suppress enemies. Grants Combat Stim and can be revived if downed." } ], strengths: ["Ability Suppression", "Versatile Flashes", "Information and Denial", "Powerful Entry Ultimate"], weaknesses: ["Destructible Signature Ability", "Telegraphed Utility", "Team Dependency for Revive", "Low Ranked Win Rate"], verdict: "KAY/O is a tale of two metas. In professional play, he is a strong A-tier pick, valued for his ability to counter utility-heavy compositions. However, he struggles in ranked, placing him in the D-tier by many analyses." } },
+            { name: 'Skye', role: 'Initiator', winRate: 49.38, pickRate: 10.90, kd: 0.91, dossier: { overview: "Hailing from Australia, Skye and her band of beastly creations blaze a trail through hostile territory. She is a highly versatile Initiator who uniquely combines information gathering, crowd control, and team healing.", abilities: [ { name: 'Regrowth (C)', cost: 150, charges: 1, desc: "Equips a healing trinket that channels to heal all allies in range and line of sight." }, { name: 'Trailblazer (Q)', cost: 300, charges: 1, desc: "Sends out and takes control of a Tasmanian tiger that can leap forward to concuss enemies." }, { name: 'Guiding Light (E)', cost: 250, charges: 2, desc: "Equips a hawk trinket that she can guide and transform into a flash." }, { name: 'Seekers (X)', cost: '8 Orbs', charges: 1, desc: "Sends out three Seekers that track down the three closest enemies and Nearsight them." } ], strengths: ["Versatility", "Information-Gathering Flash", "Team Sustain", "Effective Scouting"], weaknesses: ["Destructible Utility", "Vulnerability While Casting", "Cannot Self-Heal", "Nerfs to Flashes"], verdict: "Skye has fallen from her previous position as a top-tier Initiator and now sits in the C-tier. Heavy nerfs to her flashes have significantly reduced her viability. She is largely outclassed by more consistent Initiators." } },
+            { name: 'Sova', role: 'Initiator', winRate: 50.36, pickRate: 27.73, kd: 0.97, dossier: { overview: "Born from the eternal winter of Russia's tundra, Sova is the quintessential Initiator, specializing in tracking, finding, and eliminating enemies with ruthless efficiency and precision. He is the master of risk-free reconnaissance.", abilities: [ { name: 'Owl Drone (C)', cost: 400, charges: 1, desc: "Deploys a controllable drone that can fire a marking dart to reveal an enemy's location." }, { name: 'Shock Bolt (Q)', cost: 150, charges: 2, desc: "Fires an explosive bolt that detonates on collision, damaging nearby players." }, { name: 'Recon Bolt (E)', cost: 'Free', charges: 1, desc: "Fires a bolt that activates on collision, revealing the location of nearby enemies in its line of sight. Recharges on a 40s cooldown." }, { name: 'Hunter\'s Fury (X)', cost: '8 Orbs', charges: 1, desc: "Fires up to three long-range, wall-piercing energy blasts that damage and reveal enemies hit." } ], strengths: ["Unrivaled Reconnaissance", "Lineup Potential", "Powerful Post-Plant Control", "Global Threat Ultimate"], weaknesses: ["Destructible Utility", "High Skill Floor", "Vulnerability While Droning", "Less Effective on Certain Maps"], verdict: "Sova is a perennial S-tier Initiator and a staple of competitive VALORANT. On maps with long sightlines like Ascent, Breeze, and Haven, he is considered a near-mandatory pick for his unparalleled ability to gather information." } },
+            { name: 'Tejo', role: 'Initiator', winRate: 47.99, pickRate: 5.74, kd: 0.92, dossier: { overview: "Hailing from Colombia, Tejo is a proactive Initiator who shakes up gameplay with a unique, top-down approach to utility deployment. His kit revolves around flushing out enemies from cover using precisely targeted abilities.", abilities: [ { name: 'Stealth Drone (C)', cost: '???', charges: 1, desc: "Deploys a remote-controlled drone that is invisible at long range and can suppress and reveal enemies." }, { name: 'Special Delivery (Q)', cost: '???', charges: 1, desc: "Equips a sticky grenade that can be thrown directly or bounced to concuss enemies in its radius." }, { name: 'Guided Salvo (E)', cost: '???', charges: 1, desc: "Launches two independent missiles via a map-based interface that deal damage in ticks." }, { name: 'Armageddon (X)', cost: '???', charges: 1, desc: "Deploys a massive, controllable drone that fires a devastating laser beam, damaging and revealing enemies." } ], strengths: ["Precise Utility Placement", "Strong Area Denial", "Information and Suppression", "Synergy with Flash Initiators"], weaknesses: ["'Guns Down' Playstyle", "No Flash Utility", "Telegraphed Abilities", "Destructible Drones"], verdict: "Tejo is a strong A-tier Initiator who shines in coordinated team environments. His kit is powerful in pro play, but his low pick rate and win rate in ranked suggest he has a high skill floor and is heavily team-dependent." } },
+            { name: 'Astra', role: 'Controller', winRate: 47.05, pickRate: 2.53, kd: 1.01, dossier: { overview: "The Ghanaian agent Astra harnesses the energies of the cosmos, reshaping the battlefield to her whim with a talent for deep strategic foresight. She is the game's premier global Controller, able to place her utility anywhere on the map.", abilities: [ { name: 'Gravity Well (C)', cost: 'Free', charges: 1, desc: "Activates a Star to form a Gravity Well that pulls players toward the center before exploding, applying Vulnerable." }, { name: 'Nova Pulse (Q)', cost: 'Free', charges: 1, desc: "Activates a Star to detonate a Nova Pulse, which concusses all players in its area." }, { name: 'Nebula / Dissipate (E)', cost: 'Free', charges: 2, desc: "Activates a Star to transform it into a Nebula (smoke). Can also Dissipate a Star to retrieve it, creating a brief fake smoke." }, { name: 'Astral Form / Cosmic Divide (X)', cost: '7 Orbs', charges: 1, desc: "Enter Astral Form to place Stars. Can also be used to create an infinite wall that blocks bullets and dampens audio." } ], strengths: ["Unrivaled Global Presence", "Strategic Versatility", "Powerful Setups and Post-Plants", "Game-Changing Ultimate"], weaknesses: ["High Skill Floor and Team Dependency", "Vulnerability in Astral Form", "Telegraphed Utility", "Long Cooldowns"], verdict: "Astra is the ultimate example of the meta's divergence. In ranked play, her complexity results in one of the lowest pick/win rates. However, in the hands of a professional team, she is an S-tier Controller." } },
+            { name: 'Brimstone', role: 'Controller', winRate: 49.22, pickRate: 10.82, kd: 0.96, dossier: { overview: "Brimstone is the boots-on-the-ground commander of the VALORANT Protocol. His orbital arsenal allows him to deliver utility precisely and safely. His kit is straightforward, powerful, and focused on enabling fast, decisive site executes.", abilities: [ { name: 'Stim Beacon (C)', cost: 200, charges: 1, desc: "Tosses a beacon that creates a field granting players increased fire rate and movement speed." }, { name: 'Incendiary (Q)', cost: 250, charges: 1, desc: "Launches a grenade that creates a lingering fire zone on the floor, damaging players within it." }, { name: 'Sky Smoke (E)', cost: '1 Free, 100 each', charges: 3, desc: "Uses a tactical map to deploy up to three long-lasting smoke clouds in a limited range." }, { name: 'Orbital Strike (X)', cost: '8 Orbs', charges: 1, desc: "Uses a tactical map to launch a lingering orbital strike laser at a selected location, dealing high damage-over-time." } ], strengths: ["Fastest Site Executes", "Longest-Lasting Smokes", "Powerful Post-Plant Utility", "Ease of Use"], weaknesses: ["Limited Range", "No Recharging Smokes", "Vulnerable While Casting", "Map Dependency"], verdict: "Brimstone is a solid and reliable B-tier Controller. He remains a potent pick on smaller maps like Bind and Fracture, where his limited range is less of a hindrance. In pro play, he is a map-specific specialist." } },
+            { name: 'Clove', role: 'Controller', winRate: 52.59, pickRate: 47.42, kd: 0.95, dossier: { overview: "Clove, a young immortal troublemaker from Scotland, redefines the Controller role by blending it with the aggression of a Duelist. Their kit encourages taking risks, as their most unique abilities can be used after death.", abilities: [ { name: 'Pick-Me-Up (C)', cost: 200, charges: 1, desc: "Instantly absorbs the life force of a fallen enemy Clove damaged or killed, gaining haste and temporary health." }, { name: 'Meddle (Q)', cost: 250, charges: 1, desc: "Throws a fragment of immortality essence that erupts and temporarily decays all targets caught inside." }, { name: 'Ruse (E)', cost: '1 Free, 150', charges: 2, desc: "Uses a map view to place vision-blocking clouds. Can be used after death. Recharges on a 40s cooldown." }, { name: 'Not Dead Yet (X)', cost: '8 Orbs', charges: 1, desc: "After dying, activates to resurrect. Must earn a kill or damaging assist within a set time to stay alive." } ], strengths: ["Post-Mortem Utility", "Aggressive Controller Playstyle", "High Ranked Performance", "Powerful Debuff and Sustain"], weaknesses: ["Shorter Smoke Duration", "Limited Post-Death Range", "High-Risk Ultimate", "Vulnerability to Coordinated Play"], verdict: "Clove is an S+ tier agent in the ranked meta and a solid A-tier pick in professional play. Their ability to impact the round after death is a fundamentally powerful concept, and their dueling potential allows a single player to exert immense influence." } },
+            { name: 'Harbor', role: 'Controller', winRate: 44.68, pickRate: 1.40, kd: 0.89, dossier: { overview: "Hailing from India's coast, Harbor storms the field wielding ancient technology with dominion over water. His playstyle is focused on providing mobile cover for aggressive team pushes and slicing up sites with his guidable water walls.", abilities: [ { name: 'Cascade (C)', cost: 150, charges: 2, desc: "Sends a wave of water rolling forward that slows enemies. Can be stopped on command." }, { name: 'Cove (Q)', cost: 350, charges: 1, desc: "Throws a sphere of shielding water that blocks bullets." }, { name: 'High Tide (E)', cost: 'Free', charges: 1, desc: "Deploys a guidable wall of water that slows enemies. Recharges on a 40s cooldown." }, { name: 'Reckoning (X)', cost: '7 Orbs', charges: 1, desc: "Summons a geyser pool on the ground that targets enemies with successive strikes, concussing them." } ], strengths: ["Mobile Cover", "Bulletproof Smoke", "Flexible Vision Denial", "Strong Double Controller Synergy"], weaknesses: ["No Bullet Protection (Mostly)", "Destructible Cove", "Underwhelming Slow", "Difficult to Master"], verdict: "Harbor currently sits in the D-tier and is widely considered the weakest agent in VALORANT. His abilities are difficult to master, and his water walls not blocking bullets is a significant disadvantage, contributing to the lowest pick and win rates in the game." } },
+            { name: 'Omen', role: 'Controller', winRate: 47.27, pickRate: 31.98, kd: 0.98, dossier: { overview: "A phantom of a memory, Omen hunts in the shadows. He is a dynamic controller who uses his abilities to teleport across the field, blind enemies, and place smokes with global range and precision, making him a master of misdirection and map control.", abilities: [ { name: 'Shrouded Step (C)', cost: 100, charges: 2, desc: "After a channel, teleports a short distance." }, { name: 'Paranoia (Q)', cost: 300, charges: 1, desc: "Sends an ethereal shadow in a straight line, Nearsighting anyone it touches." }, { name: 'Dark Cover (E)', cost: 'Free', charges: 2, desc: "Enters a phased world to place smokes. Smokes recharge on a 30s cooldown." }, { name: 'From the Shadows (X)', cost: '7 Orbs', charges: 1, desc: "Select a location on the map to begin teleporting. Can be cancelled." } ], strengths: ["Global, Recharging Smokes", "Aggressive Repositioning", "Powerful Blind", "High Skill Ceiling"], weaknesses: ["Vulnerable Teleports", "Anomalously Low Win Rate", "Requires High Game Sense", "Less Raw Lockdown Power"], verdict: "Omen is a fascinating anomaly. Despite a very high pick rate in ranked, he suffers one of the lowest win rates. This suggests players are drawn to his high-skill ceiling but struggle to convert his potential into wins. In pro play, he is a staple A-tier controller, valued for his flexibility." } },
+            { name: 'Viper', role: 'Controller', winRate: 49.23, pickRate: 7.69, kd: 1.01, dossier: { overview: "The American chemist, Viper deploys an array of poisonous chemical devices to control the battlefield and cripple the enemy's vision and health. She excels at locking down sites and creating deadly zones that enemies fear to enter.", abilities: [ { name: 'Snake Bite (C)', cost: 200, charges: 2, desc: "Fires a canister that shatters, creating a chemical zone that damages and applies Vulnerable." }, { name: 'Poison Cloud (Q)', cost: 200, charges: 1, desc: "Throws a gas emitter that can be activated to create a cloud of toxic gas at the cost of fuel." }, { name: 'Toxic Screen (E)', cost: 'Free', charges: 1, desc: "Deploys a long line of gas emitters that can be activated to create a tall wall of toxic gas at the cost of fuel." }, { name: 'Viper\'s Pit (X)', cost: '8 Orbs', charges: 1, desc: "Emits a massive chemical cloud that reduces vision and max health of players inside." } ], strengths: ["Unmatched Site Lockdown", "Powerful Post-Plant Denial", "Map-Specific Dominance", "Double Controller Synergy"], weaknesses: ["Static Setups", "Fuel Management", "Vulnerable While Placing Wall", "Low Ranked Pick Rate"], verdict: "Viper is the definition of a map-specific, S-tier specialist. On maps like Icebox and Breeze, her ability to slice the map in half with Toxic Screen is almost mandatory in pro play. While her pick rate is low in ranked, her impact in a coordinated environment is immense." } },
+            { name: 'Chamber', role: 'Sentinel', winRate: 49.85, pickRate: 22.46, kd: 1.10, dossier: { overview: "Well dressed and well armed, the French weapons designer Chamber holds the line with deadly precision. He leverages custom weapons and a teleport to hold aggressive angles, secure opening kills, and escape to safety.", abilities: [ { name: 'Trademark (C)', cost: 200, charges: 1, desc: "Places a trap that scans for enemies. When an enemy comes into range, it creates a lingering field that slows players inside." }, { name: 'Headhunter (Q)', cost: '150 per bullet', charges: 8, desc: "Equips a heavy pistol with ADS." }, { name: 'Rendezvous (E)', cost: 'Free', charges: 1, desc: "Places two teleport anchors. While in range of one, can reactivate to instantly teleport to the other." }, { name: 'Tour De Force (X)', cost: '8 Orbs', charges: 1, desc: "Summons a powerful, custom sniper rifle that will kill an enemy with any direct hit. Killing an enemy creates a slowing field." } ], strengths: ["Aggressive Angle Holding", "Economic Advantage", "Safe Opening Kills", "High Carry Potential"], weaknesses: ["Reduced Global Presence (Post-Nerf)", "Selfish Utility", "Single Anchor Teleport", "High Mechanical Demand"], verdict: "After significant nerfs, Chamber has settled into a balanced role as an A-tier 'aggressive Sentinel'. He no longer dominates the meta, but his ability to safely secure kills and impact the economy keeps him a valuable and popular pick in both ranked and pro play." } },
+            { name: 'Cypher', role: 'Sentinel', winRate: 50.22, pickRate: 28.54, kd: 0.99, dossier: { overview: "The Moroccan information broker, Cypher is a one-man surveillance network. His gadgets are designed to trap and reveal the movements of his enemies, providing his team with invaluable information and locking down flanks.", abilities: [ { name: 'Trapwire (C)', cost: 200, charges: 2, desc: "Deploys a destructible tripwire that reveals and dazes an enemy who crosses it." }, { name: 'Cyber Cage (Q)', cost: 100, charges: 2, desc: "Tosses a remote activation trap. When activated, creates a zone that blocks vision and slows enemies." }, { name: 'Spycam (E)', cost: 'Free', charges: 1, desc: "Places a remote camera. Can view the video feed and fire a marking dart." }, { name: 'Neural Theft (X)', cost: '6 Orbs', charges: 1, desc: "Extracts information from a dead enemy, revealing the location of all living enemies." } ], strengths: ["Premier Flank Watcher", "Information Denial", "Powerful, Cheap Ultimate", "High Skill Ceiling with Setups"], weaknesses: ["Destructible Utility", "Static Defense", "Requires Pre-Round Setup", "Vulnerable Camera"], verdict: "Cypher is a top-tier A-Tier Sentinel, particularly excelling as a dedicated lurker and flank-watcher. His ability to control space with information and traps makes him a consistent and powerful pick across most maps and skill levels." } },
+            { name: 'Deadlock', role: 'Sentinel', winRate: 49.95, pickRate: 11.12, kd: 0.96, dossier: { overview: "The Norwegian operative Deadlock deploys an array of cutting-edge nanowire devices to secure the battlefield. Unlike other Sentinels, she doesn't provide information; she physically halts aggressive pushes in their tracks.", abilities: [ { name: 'GravNet (C)', cost: 200, charges: 1, desc: "Throws a net that forces any enemy caught to crouch and move slowly." }, { name: 'Sonic Sensor (Q)', cost: 200, charges: 2, desc: "Deploys a sensor that monitors an area for sound. If it detects footsteps, weapon fire, or other significant noise, it concusses the area." }, { name: 'Barrier Mesh (E)', cost: 'Free', charges: 1, desc: "Deploys a disc that generates barriers, blocking character movement." }, { name: 'Annihilation (X)', cost: '8 Orbs', charges: 1, desc: "Unleashes a pulse of nanowire that captures the first enemy contacted, pulling them along a path. If they reach the end, they die." } ], strengths: ["Hard Counter to Aggression", "Stalls Rushes Effectively", "No-Setup-Required Defense", "Powerful Ultimate"], weaknesses: ["No Information Gathering", "Situational Utility", "Destructible Barriers", "Low Ranked Viability"], verdict: "Deadlock is a niche B-tier Sentinel. She serves as a specific counter to fast, W-key compositions but struggles to provide the consistent value of other Sentinels. Her utility is powerful in the right situation but can feel useless otherwise." } },
+            { name: 'Killjoy', role: 'Sentinel', winRate: 50.38, pickRate: 17.78, kd: 0.99, dossier: { overview: "The genius of Germany, Killjoy secures the battlefield with ease using her arsenal of inventions. Her deployable gadgets create a deadly network that punishes any enemy foolish enough to push her site.", abilities: [ { name: 'Nanoswarm (C)', cost: 200, charges: 2, desc: "Throws a stealth grenade. When activated, deploys a swarm of nanobots that damage enemies." }, { name: 'Alarmbot (Q)', cost: 200, charges: 1, desc: "Deploys a bot that hunts down an enemy in range, exploding to apply Vulnerable." }, { name: 'Turret (E)', cost: 'Free', charges: 1, desc: "Deploys a turret that fires at enemies in a 180-degree cone." }, { name: 'Lockdown (X)', cost: '9 Orbs', charges: 1, desc: "Deploys a device that, after a long windup, detains all enemies in its radius." } ], strengths: ["Ultimate Site Lockdown", "Powerful Post-Plant Denial", "Passive Information", "Game-Changing Ultimate"], weaknesses: ["Range Restriction", "Vulnerable to Utility", "Long Ultimate Windup", "Predictable Setups"], verdict: "Killjoy is an S-tier Sentinel, rivaling Cypher for the top spot. Her ability to completely lock down a site by herself is unparalleled. Her ultimate, Lockdown, is arguably the best in the game for guaranteeing a site take or retake." } },
+            { name: 'Sage', role: 'Sentinel', winRate: 50.70, pickRate: 29.33, kd: 0.88, dossier: { overview: "The stronghold of China, Sage brings calm to a frantic battlefield. She provides safety for herself and her team wherever she goes, able to revive fallen friends and stave off aggressive pushes.", abilities: [ { name: 'Barrier Orb (C)', cost: 400, charges: 1, desc: "Equips a barrier orb. Fires to place a solid, fortifying wall." }, { name: 'Slow Orb (Q)', cost: 200, charges: 2, desc: "Throws an orb that creates a lingering field, slowing players caught inside." }, { name: 'Healing Orb (E)', cost: 'Free', charges: 1, desc: "Heals an ally or herself to full health over a few seconds. Recharges on a 45s cooldown." }, { name: 'Resurrection (X)', cost: '8 Orbs', charges: 1, desc: "Targets a friendly corpse. After a short channel, revives them with full health." } ], strengths: ["Powerful Healing", "Unmatched Stall Potential", "Game-Changing Ultimate", "Beginner Friendly"], weaknesses: ["Expensive Utility", "Limited Information", "Vulnerable While Reviving", "Wall is Easily Broken"], verdict: "Sage is a consistently strong A-tier Sentinel. While she doesn't provide the information of Cypher or the lockdown of Killjoy, her unique healing and stalling capabilities ensure she always has a place in the meta. Her ultimate can single-handedly swing the momentum of a game." } },
+            { name: 'Vyse', role: 'Sentinel', winRate: 50.37, pickRate: 6.76, kd: 1.01, dossier: { overview: "Vyse, the newest Sentinel, was designed as a direct counter to aggressive entries. She uses an indestructible, trigger-based wall and a placeable flash to isolate and eliminate attackers.", abilities: [ { name: 'Arc Rose (C)', cost: '???', charges: 1, desc: "Places a flower that blooms into a flash when an enemy crosses its trigger." }, { name: '??? (Q)', cost: '???', charges: 1, desc: "Ability details not fully specified in report." }, { name: 'Shear (E)', cost: 'Free', charges: 1, desc: "Deploys an indestructible, trigger-based wall that springs up when an enemy crosses a line." }, { name: '??? (X)', cost: '???', charges: 1, desc: "Ability details not fully specified in report." } ], strengths: ["Hard Counter to Entries", "Indestructible Wall", "Unique Defensive Flash"], weaknesses: ["Highly Situational", "Limited General Utility"], verdict: "The ascent of Vyse to S-tier status in professional play is a direct result of the meta shift towards valuing utility synergy. Her indestructible Shear wall provides a hard counter to the fast, Duelist-led site executions that have long been a staple of pro play." } }
+        ];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const ctxRole = document.getElementById('roleDistributionChart').getContext('2d');
+            const ctxDivergence = document.getElementById('metaDivergenceChart').getContext('2d');
+            const ctxPowerGrid = document.getElementById('agentPowerGridChart').getContext('2d');
+            
+            const roleCounts = agentData.reduce((acc, agent) => {
+                acc[agent.role] = (acc[agent.role] || 0) + 1;
+                return acc;
+            }, {});
+
+            const roleColors = {
+                'Duelist': 'rgba(236, 72, 153, 0.8)', // pink-500
+                'Initiator': 'rgba(59, 130, 246, 0.8)', // blue-500
+                'Controller': 'rgba(139, 92, 246, 0.8)', // violet-500
+                'Sentinel': 'rgba(16, 185, 129, 0.8)'  // emerald-500
+            };
+
+            const tooltipPlugin = {
+                tooltip: {
+                    enabled: true,
+                    backgroundColor: 'rgba(15, 23, 42, 0.8)', // slate-900
+                    titleColor: '#f1f5f9', // slate-100
+                    bodyColor: '#cbd5e1', // slate-300
+                    titleFont: { size: 14, weight: 'bold' },
+                    bodyFont: { size: 12 },
+                    padding: 10,
+                    cornerRadius: 4,
+                    displayColors: false,
+                }
+            };
+
+            new Chart(ctxRole, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(roleCounts),
+                    datasets: [{
+                        data: Object.values(roleCounts),
+                        backgroundColor: Object.values(roleColors),
+                        borderColor: '#0f172a', // slate-900
+                        borderWidth: 4,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#94a3b8' } // slate-400
+                        },
+                        tooltip: tooltipPlugin.tooltip
+                    }
+                }
+            });
+
+            const divergenceAgents = ['Yoru', 'Vyse', 'Astra', 'Reyna'];
+            const rankedPickRates = { Yoru: 11.15, Vyse: 6.76, Astra: 2.53, Reyna: 54.28 };
+            const proPickRates = { Yoru: 75, Vyse: 68, Astra: 60, Reyna: 5 };
+            new Chart(ctxDivergence, {
+                type: 'bar',
+                data: {
+                    labels: divergenceAgents,
+                    datasets: [
+                        { label: 'Ranked Pick Rate (%)', data: divergenceAgents.map(a => rankedPickRates[a]), backgroundColor: 'rgba(96, 165, 250, 0.7)', borderRadius: 4 }, // blue-400
+                        { label: 'Pro Pick Rate (%)', data: divergenceAgents.map(a => proPickRates[a]), backgroundColor: 'rgba(244, 114, 182, 0.7)', borderRadius: 4 } // pink-400
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#94a3b8' } },
+                        x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+                    },
+                    plugins: {
+                        legend: { position: 'top', labels: { color: '#94a3b8' } },
+                        tooltip: tooltipPlugin.tooltip
+                    }
+                }
+            });
+            
+            new Chart(ctxPowerGrid, {
+                type: 'scatter',
+                data: {
+                    datasets: Object.keys(roleColors).map(role => ({
+                        label: role,
+                        data: agentData.filter(a => a.role === role).map(a => ({ x: a.pickRate, y: a.winRate, agent: a.name })),
+                        backgroundColor: roleColors[role]
+                    }))
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { title: { display: true, text: 'Pick Rate (%)', color: '#94a3b8' }, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#94a3b8' } },
+                        y: { title: { display: true, text: 'Win Rate (%)', color: '#94a3b8' }, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#94a3b8' } }
+                    },
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: '#94a3b8' } },
+                        tooltip: {
+                            ...tooltipPlugin.tooltip,
+                            callbacks: {
+                                label: function(context) {
+                                    const agent = context.raw.agent;
+                                    return `${agent}: ${context.parsed.x.toFixed(2)}% Pick, ${context.parsed.y.toFixed(2)}% Win`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            const agentList = document.getElementById('agent-list');
+            const agentDetails = document.getElementById('agent-details');
+
+            const populateAgentList = (filter = 'All') => {
+                agentList.innerHTML = '';
+                const filteredAgents = (filter === 'All') ? agentData : agentData.filter(a => a.role === filter);
+                filteredAgents.sort((a, b) => a.name.localeCompare(b.name)).forEach(agent => {
+                    const card = document.createElement('div');
+                    card.className = 'agent-card bg-slate-800 p-3 rounded-lg shadow-md border-2 border-transparent';
+                    card.dataset.agentName = agent.name;
+                    card.innerHTML = `<h3 class="font-bold text-slate-100">${agent.name}</h3><p class="text-sm text-slate-400">${agent.role}</p>`;
+                    agentList.appendChild(card);
+                });
+            };
+
+            const showAgentDetails = (agentName) => {
+                const agent = agentData.find(a => a.name === agentName);
+                if (!agent) return;
+
+                const abilitiesHtml = agent.dossier.abilities.map(ab => `
+                    <tr class="border-b border-slate-700">
+                        <td class="py-2 pr-4 font-semibold text-slate-100">${ab.name}</td>
+                        <td class="py-2 px-4 text-slate-400">${ab.desc}</td>
+                    </tr>
+                `).join('');
+
+                agentDetails.innerHTML = `
+                    <h2 class="text-3xl font-extrabold text-white">${agent.name}</h2>
+                    <p class="text-lg font-semibold text-blue-400 mb-4">${agent.role}</p>
+                    <p class="text-slate-400 mb-6">${agent.dossier.overview}</p>
+                    
+                    <h3 class="text-xl font-bold mt-6 mb-3 text-slate-100">Abilities</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <tbody>${abilitiesHtml}</tbody>
+                        </table>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                        <div>
+                            <h3 class="text-xl font-bold mb-3 text-slate-100">Strategic Strengths</h3>
+                            <ul class="list-disc list-inside space-y-1 text-slate-400">
+                                ${agent.dossier.strengths.map(s => `<li>${s}</li>`).join('')}
+                            </ul>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold mb-3 text-slate-100">Strategic Weaknesses</h3>
+                            <ul class="list-disc list-inside space-y-1 text-slate-400">
+                                ${agent.dossier.weaknesses.map(w => `<li>${w}</li>`).join('')}
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 bg-slate-900 p-4 rounded-lg">
+                        <h3 class="text-xl font-bold mb-2 text-slate-100">Final Verdict</h3>
+                        <p class="text-slate-300">${agent.dossier.verdict}</p>
+                    </div>
+                `;
+
+                document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));
+                document.querySelector(`.agent-card[data-agent-name="${agentName}"]`).classList.add('active');
+            };
+
+            agentList.addEventListener('click', (e) => {
+                const card = e.target.closest('.agent-card');
+                if (card) {
+                    showAgentDetails(card.dataset.agentName);
+                }
+            });
+
+            document.querySelectorAll('.role-filter').forEach(button => {
+                button.addEventListener('click', () => {
+                    document.querySelectorAll('.role-filter').forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+                    populateAgentList(button.dataset.role);
+                });
+            });
+
+            const tableBody = document.querySelector('#agent-stats-table tbody');
+            const populateTable = (data) => {
+                tableBody.innerHTML = '';
+                data.forEach(agent => {
+                    const row = document.createElement('tr');
+                    row.className = 'border-b border-slate-700 hover:bg-slate-700/50';
+                    row.innerHTML = `
+                        <td class="px-6 py-4 font-medium text-slate-100 whitespace-nowrap">${agent.name}</td>
+                        <td class="px-6 py-4">${agent.winRate.toFixed(2)}%</td>
+                        <td class="px-6 py-4">${agent.pickRate.toFixed(2)}%</td>
+                        <td class="px-6 py-4">${agent.kd.toFixed(2)}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+            };
+            
+            let currentSort = { key: 'winRate', order: 'desc' };
+            const sortData = (key) => {
+                if (currentSort.key === key) {
+                    currentSort.order = currentSort.order === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.key = key;
+                    currentSort.order = 'desc';
+                }
+                const sortedData = [...agentData].sort((a, b) => {
+                    const valA = (typeof a[key] === 'string') ? a[key] : a[key];
+                    const valB = (typeof b[key] === 'string') ? b[key] : b[key];
+                    if (valA < valB) return currentSort.order === 'asc' ? -1 : 1;
+                    if (valA > valB) return currentSort.order === 'asc' ? 1 : -1;
+                    return 0;
+                });
+                populateTable(sortedData);
+            };
+
+            document.querySelectorAll('#agent-stats-table th').forEach((th, index) => {
+                const keys = ['name', 'winRate', 'pickRate', 'kd'];
+                th.addEventListener('click', () => sortData(keys[index]));
+            });
+
+            populateAgentList();
+            sortData('winRate');
+
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.addEventListener('click', () => {
+                    const tabId = button.dataset.tab;
+                    document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+                    document.querySelectorAll('.content-section').forEach(section => {
+                        section.classList.remove('active');
+                        if (section.id === tabId) {
+                            section.classList.add('active');
+                        }
+                    });
+                });
+            });
+        });
+    </script>
+</body>
+</html>
